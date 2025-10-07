@@ -35,10 +35,11 @@ st.title('¿Cómo han evolucionado las ventas en el tiempo?')
 ''
 ''
 # Configuración de la barra lateral
-st.sidebar.title('Panel de control')
+st.sidebar.title('Panel de control de filtros :filter:')
 
 # Estado de sesión para los filtros
 if 'filtros_inicializados' not in st.session_state:
+    st.session_state.departamento_key = 0
     st.session_state.ciudad_key = 0
     st.session_state.subgrupo_key = 0
     st.session_state.agrupacion_key = 0
@@ -48,6 +49,7 @@ if 'filtros_inicializados' not in st.session_state:
 
 # Función para reiniciar las claves
 def reset_filters():
+    st.session_state.departamento_key += 1
     st.session_state.ciudad_key += 1
     st.session_state.subgrupo_key += 1
     st.session_state.agrupacion_key += 1
@@ -60,8 +62,9 @@ st.sidebar.button(' Restablecer Filtros', on_click=reset_filters)
 # 4. Selector de agrupación para gráfico ventas
 st.sidebar.header('Configuración del gráfico')
 agrupacion_tiempo = st.sidebar.radio(
-    'Ventas agrupadas por:',
-    ['Mensual', 'Trimestral', 'Anual'],
+    'Agrupación de tiempo:',
+    ['Dia', 'Semanal', 'Mensual', 'Trimestral', 'Anual'],
+    index=2, # 'Mensual' es la tercera opción (índice 2)
     key=f'agrupacion_{st.session_state.agrupacion_key}'
 )
 
@@ -71,15 +74,25 @@ fecha_inicio = st.sidebar.date_input(
     'Fecha inicial',
     value=pd.to_datetime('2014-01-10'),
     min_value=pd.to_datetime('2014-01-10'),
-    max_value=pd.to_datetime('2017-12-30'),
+    max_value=pd.to_datetime('2017-01-30'),
     key=f'fecha_inicio_{st.session_state.fecha_inicio_key}'
 )
 fecha_final = st.sidebar.date_input(
     'Fecha final',
-    value=pd.to_datetime('2017-12-30'),
+    value=pd.to_datetime('2017-01-30'),
     min_value=pd.to_datetime('2014-01-10'),
-    max_value=pd.to_datetime('2017-12-30'),
+    max_value=pd.to_datetime('2017-01-30'),
     key=f'fecha_fin_{st.session_state.fecha_fin_key}'
+)
+
+# Filtro Departamento
+st.sidebar.header('Filtro geográfico')
+departamentos = df['departamento'].unique().tolist()
+departamentos_seleccionados = st.sidebar.multiselect(
+    'Selecciona ciudades:',
+    options=departamentos,
+    default=departamentos, # Todos por defecto
+    key=f'departamento_{st.session_state.departamento_key}'
 )
 
 # 2. Filtro ciudad
@@ -102,9 +115,15 @@ subgrupos_seleccionados = st.sidebar.multiselect(
     key=f'subgrupo_{st.session_state.subgrupo_key}'
 )
 
+# Fecha inicio debe ser mayor a fecha final
+if fecha_inicio > fecha_final:
+    st.sidebar.error('La fecha inicial no puede ser mayor que la fecha final.')
+    st.stop()
 
-
-
+# Mostrar advertencia si no hay departamentos seleccionados
+if not departamentos_seleccionados:
+    st.warning('Por favor, selecciona al menos un departamento para visualizar los datos.')
+    st.stop()
 
 # Mostrar advertencia si no hay ciudades seleccionadas
 if not ciudades_seleccionadas:
@@ -118,6 +137,7 @@ if not subgrupos_seleccionados:
 
 # Aplicar filtros al DataFrame
 df_filtrado = df[
+    (df['departamento'].isin(departamentos_seleccionados)) &
     (df['ciudad'].isin(ciudades_seleccionadas)) &
     (df['nom_sub'].isin(subgrupos_seleccionados)) &
     (df['fecha'] >= pd.to_datetime(fecha_inicio)) &
@@ -138,8 +158,14 @@ with col2:
     st.metric('Productos Vendidos', df_filtrado['item'].nunique())
 
 # Logica agrupar segun eleccion
-if agrupacion_tiempo == 'Mensual':
-    df_agrupado = df_filtrado.groupby(pd.Grouper(key='fecha', freq='M'))['pre_tot'].sum().reset_index()
+if agrupacion_tiempo == 'Dia':
+    df_agrupado = df_filtrado.groupby(pd.Grouper(key='fecha', freq='D'))['pre_tot'].sum().reset_index()
+    titulo_grafico = 'Evolución de Ventas Diarias'
+elif agrupacion_tiempo == 'Semanal':
+    df_agrupado = df_filtrado.groupby(pd.Grouper(key='fecha', freq='W'))['pre_tot'].sum().reset_index()
+    titulo_grafico = 'Evolución de Ventas Semanales'
+elif agrupacion_tiempo == 'Mensual':
+    df_agrupado = df_filtrado.groupby(pd.Grouper(key='fecha', freq='ME'))['pre_tot'].sum().reset_index()
     titulo_grafico = 'Evolución de Ventas Mensuales'
 elif agrupacion_tiempo == 'Trimestral':
     df_agrupado = df_filtrado.groupby(pd.Grouper(key='fecha', freq='Q'))['pre_tot'].sum().reset_index()
@@ -182,7 +208,29 @@ def formato_miles_millones(value, tick_number):
 
 fig = go.Figure()
 
-if agrupacion_tiempo == 'Mensual':
+if agrupacion_tiempo == 'Semanal':
+    fechas = df_agrupado['fecha']
+    etiquetas_personalizadas = []
+    for fecha in fechas:
+        # Calcular el rango de días de la semana
+        inicio_semana = fecha - pd.Timedelta(days=fecha.weekday())
+        fin_semana = inicio_semana + pd.Timedelta(days=6)
+        # Ajustar si el inicio o fin de semana se sale del mes
+        inicio_semana = max(inicio_semana, pd.Timestamp(fecha.year, fecha.month, 1))
+        fin_mes = pd.Timestamp(fecha.year, fecha.month, 1) + pd.offsets.MonthEnd(0)
+        fin_semana = min(fin_semana, fin_mes)
+        etiqueta = f"{inicio_semana.month}/{inicio_semana.day} - {fin_semana.month}/{fin_semana.day}"
+        etiquetas_personalizadas.append(etiqueta)
+    fig.update_layout(
+        xaxis_title='Semana',
+        yaxis_title='Ventas Totales (Pesos)',
+        title=titulo_grafico
+    )
+    fig.update_xaxes(
+        tickvals=fechas,
+        ticktext=etiquetas_personalizadas
+    )
+elif agrupacion_tiempo == 'Mensual':
     fechas = pd.date_range(start=df_agrupado['fecha'].min(), end=df_agrupado['fecha'].max(), freq='M')
     fig.update_layout(
     xaxis_title='Fecha', 
@@ -466,18 +514,114 @@ Con esta información, se pueden tomar decisiones estratégicas como:
 # ------------------------------------------------------------------
 
 st.title('¿Quiénes son nuestros mejores clientes?')
-# Agrupar ventas por cliente
-df_clientes = df_filtrado.groupby('nom_cli')['pre_tot'].sum().reset_index()
-df_clientes = df_clientes.sort_values(by='pre_tot', ascending=False)
-df_clientes['porcentaje_acumulado'] = df_clientes['pre_tot'].cumsum() / df_clientes['pre_tot'].sum()
+# --- Agrupar ventas por cliente ---
+df_clientes = df.groupby('nom_cli').agg({
+    'pre_tot': 'sum',
+    'num_doc': 'nunique',  # Número de compras (frecuencia)
+    'fecha': 'max'  # Última fecha de compra
+}).reset_index()
 
-# Identificar el top 20% de clientes que generan el 80% de los ingresos
-num_clientes = len(df_clientes)
-top_20_por_ciento = int(num_clientes * 0.2)
-clientes_pareto = df_clientes.head(top_20_por_ciento)
-ingresos_top_20 = clientes_pareto['pre_tot'].sum()
-porcentaje_ingresos_top_20 = ingresos_top_20 / df_clientes['pre_tot'].sum() * 100
+df_clientes = df_clientes.rename(columns={
+    'pre_tot': 'ventas_totales',
+    'num_doc': 'frecuencia_compras',
+    'fecha': 'ultima_compra'
+})
 
-st.subheader('Clientes más valiosos (Regla 80/20)')
-st.write(f"El top 20% de los clientes genera aproximadamente el {porcentaje_ingresos_top_20:.1f}% de los ingresos.")
-st.dataframe(clientes_pareto)
+# Ordenar por ventas totales (de mayor a menor)
+df_clientes = df_clientes.sort_values('ventas_totales', ascending=False)
+
+# --- Calcular métricas para identificar el top 5% ---
+total_ventas = df_clientes['ventas_totales'].sum()
+df_clientes['porcentaje_del_total'] = (df_clientes['ventas_totales'] / total_ventas) * 100
+df_clientes['porcentaje_acumulado'] = df_clientes['porcentaje_del_total'].cumsum()
+
+# Identificar el top 5% de clientes por ingresos
+umbral_5_porciento = 30
+clientes_top_5 = df_clientes[df_clientes['porcentaje_acumulado'] <= umbral_5_porciento]
+
+# Alternativa: calcular percentil 95
+percentil_95 = df_clientes['ventas_totales'].quantile(0.70)
+clientes_top_5_alt = df_clientes[df_clientes['ventas_totales'] >= percentil_95]
+
+st.subheader(f"Top {len(clientes_top_5)} Clientes Más Valiosos (Generan el {umbral_5_porciento}% de Ingresos)")
+
+# --- Mostrar KPIs principales ---
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Total Clientes", len(df_clientes))
+with col2:
+    st.metric("Clientes Top 5%", len(clientes_top_5))
+with col3:
+    st.metric("% Ventas del Top 5%", f"{clientes_top_5['porcentaje_del_total'].sum():.1f}%")
+
+# --- Gráfico de Pareto de Clientes ---
+st.subheader("Análisis de Pareto - Distribución de Clientes por Valor")
+
+# Preparar datos para Pareto
+df_pareto = df_clientes.copy()
+df_pareto['cliente_rank'] = range(1, len(df_pareto) + 1)
+df_pareto['es_top_5'] = df_pareto['nom_cli'].isin(clientes_top_5['nom_cli'])
+
+# Crear gráfico de Pareto
+fig_pareto = go.Figure()
+
+# Barras para ventas por cliente
+fig_pareto.add_trace(go.Bar(
+    x=df_pareto['cliente_rank'],
+    y=df_pareto['ventas_totales'],
+    name='Ventas por Cliente',
+    marker_color=df_pareto['es_top_5'].map({True: 'red', False: 'lightblue'})
+))
+
+# Línea de porcentaje acumulado
+fig_pareto.add_trace(go.Scatter(
+    x=df_pareto['cliente_rank'],
+    y=df_pareto['porcentaje_acumulado'],
+    name='% Acumulado',
+    line=dict(color='orange', width=3),
+    yaxis='y2'
+))
+
+# Línea del 5%
+fig_pareto.add_trace(go.Scatter(
+    x=[0, len(df_pareto)],
+    y=[5, 5],
+    name='Umbral 5%',
+    line=dict(color='red', width=2, dash='dash'),
+    yaxis='y2'
+))
+
+fig_pareto.update_layout(
+    title='Distribución de Valor de Clientes - Principio de Pareto',
+    xaxis_title='Ranking de Clientes',
+    yaxis_title='Ventas Totales',
+    yaxis2=dict(
+        title='Porcentaje Acumulado (%)',
+        overlaying='y',
+        side='right',
+        range=[0, 100]
+    ),
+    showlegend=True
+)
+
+st.plotly_chart(fig_pareto, use_container_width=True)
+
+# --- Tabla de Clientes Top 5% ---
+st.subheader("Detalle de Clientes Más Valiosos")
+
+# Formatear la tabla para mejor visualización
+clientes_top_display = clientes_top_5.copy()
+clientes_top_display['ventas_totales'] = clientes_top_display['ventas_totales'].apply(lambda x: f"${x:,.0f}")
+clientes_top_display['porcentaje_del_total'] = clientes_top_display['porcentaje_del_total'].apply(lambda x: f"{x:.2f}%")
+clientes_top_display['ultima_compra'] = pd.to_datetime(clientes_top_display['ultima_compra']).dt.strftime('%Y-%m-%d')
+
+st.dataframe(
+    clientes_top_display[['nom_cli', 'ventas_totales', 'porcentaje_del_total', 'frecuencia_compras', 'ultima_compra']],
+    column_config={
+        'nom_cli': 'Cliente',
+        'ventas_totales': 'Ventas Totales',
+        'porcentaje_del_total': '% del Total',
+        'frecuencia_compras': 'N° Compras',
+        'ultima_compra': 'Última Compra'
+    }
+)
