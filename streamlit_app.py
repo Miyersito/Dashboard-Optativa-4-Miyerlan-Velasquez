@@ -28,6 +28,7 @@ ventas_mes = df.groupby(pd.Grouper(key='fecha', freq='ME'))['pre_tot'].sum().res
 
 # Set the title that appears at the top of the page.
 st.title('📊 Dashboard de Ventas y Análisis de Datos')
+st.info('Para abrir el panel de control de filtros haga click en el botón (») en la parte superior izquierda')
 st.title('¿Cómo han evolucionado las ventas en el tiempo?')
 
 
@@ -35,7 +36,7 @@ st.title('¿Cómo han evolucionado las ventas en el tiempo?')
 ''
 ''
 # Configuración de la barra lateral
-st.sidebar.title('Panel de control de filtros :filter:')
+st.sidebar.title('Panel de control de filtros')
 
 # Estado de sesión para los filtros
 if 'filtros_inicializados' not in st.session_state:
@@ -89,14 +90,14 @@ fecha_final = st.sidebar.date_input(
 st.sidebar.header('Filtro geográfico')
 departamentos = df['departamento'].unique().tolist()
 departamentos_seleccionados = st.sidebar.multiselect(
-    'Selecciona ciudades:',
+    'Selecciona deparamentost:',
     options=departamentos,
     default=departamentos, # Todos por defecto
     key=f'departamento_{st.session_state.departamento_key}'
 )
 
 # 2. Filtro ciudad
-st.sidebar.header('Filtro geográfico')
+#st.sidebar.header('Filtro de ciudades')
 ciudades = df['ciudad'].unique().tolist()
 ciudades_seleccionadas = st.sidebar.multiselect(
     'Selecciona ciudades:',
@@ -174,7 +175,7 @@ else: # Anual
     df_agrupado = df_filtrado.groupby(pd.Grouper(key='fecha', freq='Y'))['pre_tot'].sum().reset_index()
     titulo_grafico = 'Evolución de Ventas Anuales'
 
-st.dataframe(df)
+# st.dataframe(df)
 
 
 # # Gráfico de líneas con Plotly
